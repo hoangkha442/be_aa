@@ -7,11 +7,11 @@ import ProtectedRoute from "@/routes/ProtectedRoute";
 import LoginPage from "@/pages/auth/LoginPage";
 import DashboardPage from "@/pages/dashboard/DashboardPage";
 import ClassesPage from "@/pages/classes/ClassesPage";
-import StudentsPage from "@/pages/students/StudentsPage";
 import WarningsPage from "@/pages/warnings/WarningsPage";
 import NotesPage from "@/pages/notes/NotePage";
 import ReportsPage from "@/pages/reports/ReportsPage";
 import SettingsPage from "@/pages/settings/SettingsPage";
+import StudentDetailPage from "@/pages/students/StudentDetailPage";
 
 export const router = createBrowserRouter([
   {
@@ -30,11 +30,11 @@ export const router = createBrowserRouter([
           { index: true, element: <Navigate to="/dashboard" replace /> },
           { path: "/dashboard", element: <DashboardPage /> },
           { path: "/classes", element: <ClassesPage /> },
-          { path: "/students", element: <StudentsPage /> },
           { path: "/warnings", element: <WarningsPage /> },
           { path: "/notes", element: <NotesPage /> },
           { path: "/reports", element: <ReportsPage /> },
           { path: "/settings", element: <SettingsPage /> },
+          { path: "/students/:id", element: <StudentDetailPage /> },
         ],
       },
     ],

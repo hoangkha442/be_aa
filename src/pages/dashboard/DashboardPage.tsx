@@ -43,38 +43,90 @@ export default function DashboardPage() {
   const status: "idle" | "loading" | "succeeded" | "failed" = advisor?.status ?? "idle";
   const error: string | null = advisor?.error ?? null;
 
+  // server paging
+  const [page, setPage] = useState<number>(1);
+  const [limit, setLimit] = useState<number>(10);
+
   // FE filters
   const [filters, setFilters] = useState<StudentFilterState>(DEFAULT_FILTERS);
 
+  // 1) load meta once
   useEffect(() => {
     dispatch(fetchClassesThunk());
     dispatch(fetchSemestersThunk());
   }, [dispatch]);
 
+  // 2) auto select first class if none
+  useEffect(() => {
+    if (selectedClassId) return;
+    const first = classes.find((a: any) => a?.class?.id)?.class?.id;
+    if (first) dispatch(setSelectedClass(first));
+  }, [classes, selectedClassId, dispatch]);
+
+  // 3) auto select current semester if none (optional)
+  useEffect(() => {
+    if (selectedSemesterId) return;
+    const current = semesters.find((s: any) => s?.is_current)?.id ?? semesters?.[0]?.id;
+    if (current) dispatch(setSelectedSemester(current));
+  }, [semesters, selectedSemesterId, dispatch]);
+
+  // helper: fetch dashboard
+  const doFetch = useCallback(
+    (opts?: { page?: number; limit?: number; q?: string }) => {
+      if (!selectedClassId) return;
+
+      const p = opts?.page ?? page;
+      const l = opts?.limit ?? limit;
+      const q = (opts?.q ?? filters.q ?? "").trim();
+
+      dispatch(
+        fetchDashboardThunk({
+          class_id: selectedClassId,
+          semester_id: selectedSemesterId ?? undefined,
+          page: p,
+          limit: l,
+          q: q || undefined,
+        })
+      );
+    },
+    [dispatch, selectedClassId, selectedSemesterId, page, limit, filters.q]
+  );
+
+  // 4) refetch when class/semester changes (reset page)
+  useEffect(() => {
+    if (!selectedClassId) return;
+    setPage(1);
+    doFetch({ page: 1 });
+  }, [selectedClassId, selectedSemesterId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 5) server-side search q (debounce nhẹ)
+  useEffect(() => {
+    if (!selectedClassId) return;
+    const t = setTimeout(() => {
+      setPage(1);
+      doFetch({ page: 1 });
+    }, 350);
+    return () => clearTimeout(t);
+  }, [filters.q, selectedClassId]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const reload = useCallback(() => {
     if (!selectedClassId) return;
-    dispatch(
-      fetchDashboardThunk({
-        class_id: selectedClassId,
-        semester_id: selectedSemesterId ?? undefined,
-        page: 1,
-        limit: 10,
-      })
-    );
-  }, [dispatch, selectedClassId, selectedSemesterId]);
-
-  useEffect(() => {
-    if (selectedClassId) reload();
-  }, [selectedClassId, selectedSemesterId, reload]);
+    doFetch();
+  }, [selectedClassId, doFetch]);
 
   const summary = dashboard?.summary ?? null;
   const studentsPaging = dashboard?.students ?? null;
-  const rows: any[] = studentsPaging?.data ?? [];
 
-  // Apply client-side filters
+  // backend buildPaginationResponse thường là { data, total, page, limit, totalPages }
+  const rows: any[] = studentsPaging?.data ?? [];
+  const total = safeNumber(studentsPaging?.total, rows.length);
+  const totalPages = safeNumber(studentsPaging?.totalPages, 1);
+
+  // Apply client-side filters (ngoại trừ q đã filter ở server rồi, nhưng giữ cũng không sao)
   const filteredRows = useMemo(() => {
     let out = [...rows];
 
+    // q (optional redundancy)
     const q = filters.q.trim().toLowerCase();
     if (q) {
       out = out.filter((r) => {
@@ -90,7 +142,13 @@ export default function DashboardPage() {
     }
 
     if (filters.dataStatus !== "all") {
-      out = out.filter((r) => String(r?.snapshot?.data_status ?? "") === filters.dataStatus);
+      const want = filters.dataStatus; // ok | missing | error
+      out = out.filter((r) => {
+        const ds = String(r?.snapshot?.data_status ?? "");
+        // backend có thể trả missing_data
+        if (want === "missing") return ds === "missing" || ds === "missing_data";
+        return ds === want;
+      });
     }
 
     if (filters.warningMode !== "all") {
@@ -114,7 +172,9 @@ export default function DashboardPage() {
 
     const failedMin = parseMaybeNumber(filters.failedCoursesMin);
     if (failedMin !== null) {
-      out = out.filter((r) => safeNumber(r?.snapshot?.failed_courses_count_semester, 0) >= failedMin);
+      out = out.filter(
+        (r) => safeNumber(r?.snapshot?.failed_courses_count_semester, 0) >= failedMin
+      );
     }
 
     // Sort
@@ -155,7 +215,7 @@ export default function DashboardPage() {
             Advisor Dashboard
           </h1>
           <p className="text-sm text-slate-600">
-            Theo dõi tổng quan & danh sách sinh viên.
+            Theo dõi tổng quan & danh sách sinh viên theo lớp/học kỳ.
           </p>
         </div>
         <Separator />
@@ -167,8 +227,14 @@ export default function DashboardPage() {
         selectedClassId={selectedClassId}
         selectedSemesterId={selectedSemesterId}
         status={status}
-        onChangeClass={(id) => dispatch(setSelectedClass(id))}
-        onChangeSemester={(id) => dispatch(setSelectedSemester(id))}
+        onChangeClass={(id) => {
+          setPage(1);
+          dispatch(setSelectedClass(id));
+        }}
+        onChangeSemester={(id) => {
+          setPage(1);
+          dispatch(setSelectedSemester(id));
+        }}
         onReload={reload}
       />
 
@@ -179,101 +245,46 @@ export default function DashboardPage() {
       )}
 
       {/* KPI */}
-      {/* <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
-        <Card className="border-slate-200/70">
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="text-xs text-slate-600">Tổng sinh viên</div>
-                <div className="mt-1 text-2xl font-semibold text-slate-900">
-                  {summary ? summary.students_total : <Skeleton className="h-7 w-16" />}
-                </div>
-              </div>
-              <div className="rounded-xl border bg-slate-50 p-2">
-                <Users className="h-5 w-5 text-slate-700" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
+        <KpiCard
+          label="Tổng sinh viên"
+          tone="sky"
+          icon={Users}
+          value={summary ? summary.students_total : <Skeleton className="h-7 w-16" />}
+        />
+        <KpiCard
+          label="GPA trung bình (HK)"
+          tone="indigo"
+          icon={GraduationCap}
+          value={
+            summary ? (
+              safeNumber(summary.avg_gpa_semester, 0).toFixed(2)
+            ) : (
+              <Skeleton className="h-7 w-20" />
+            )
+          }
+        />
+        <KpiCard
+          label="Tổng cảnh báo"
+          tone="amber"
+          icon={TriangleAlert}
+          value={summary ? summary.warnings_total : <Skeleton className="h-7 w-16" />}
+        />
+        <KpiCard
+          label="Đã gửi"
+          tone="emerald"
+          icon={Send}
+          value={summary ? sentCount : <Skeleton className="h-7 w-16" />}
+        />
+      </div>
 
-        <Card className="border-slate-200/70">
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="text-xs text-slate-600">GPA trung bình (HK)</div>
-                <div className="mt-1 text-2xl font-semibold text-slate-900">
-                  {summary ? safeNumber(summary.avg_gpa_semester, 0).toFixed(2) : <Skeleton className="h-7 w-20" />}
-                </div>
-              </div>
-              <div className="rounded-xl border bg-slate-50 p-2">
-                <GraduationCap className="h-5 w-5 text-slate-700" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="border-slate-200/70">
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="text-xs text-slate-600">Tổng cảnh báo</div>
-                <div className="mt-1 text-2xl font-semibold text-slate-900">
-                  {summary ? summary.warnings_total : <Skeleton className="h-7 w-16" />}
-                </div>
-              </div>
-              <div className="rounded-xl border bg-slate-50 p-2">
-                <TriangleAlert className="h-5 w-5 text-slate-700" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="border-slate-200/70">
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="text-xs text-slate-600">Đã gửi</div>
-                <div className="mt-1 text-2xl font-semibold text-slate-900">
-                  {summary ? sentCount : <Skeleton className="h-7 w-16" />}
-                </div>
-              </div>
-              <div className="rounded-xl border bg-slate-50 p-2">
-                <Send className="h-5 w-5 text-slate-700" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </div> */}
-<div className="grid grid-cols-1 gap-3 md:grid-cols-4">
-  <KpiCard
-    label="Tổng sinh viên"
-    tone="sky"
-    icon={Users}
-    value={summary ? summary.students_total : <Skeleton className="h-7 w-16" />}
-  />
-  <KpiCard
-    label="GPA trung bình (HK)"
-    tone="indigo"
-    icon={GraduationCap}
-    value={summary ? safeNumber(summary.avg_gpa_semester, 0).toFixed(2) : <Skeleton className="h-7 w-20" />}
-  />
-  <KpiCard
-    label="Tổng cảnh báo"
-    tone="amber"
-    icon={TriangleAlert}
-    value={summary ? summary.warnings_total : <Skeleton className="h-7 w-16" />}
-  />
-  <KpiCard
-    label="Đã gửi"
-    tone="emerald"
-    icon={Send}
-    value={summary ? sentCount : <Skeleton className="h-7 w-16" />}
-  />
-</div>
       {/* Filters FE */}
       <StudentFilters
         value={filters}
-        onChange={setFilters}
+        onChange={(next) => {
+          // q sẽ trigger fetch (debounce) ở effect
+          setFilters(next);
+        }}
         shownCount={filteredRows.length}
         totalCount={rows.length}
       />
@@ -323,7 +334,24 @@ export default function DashboardPage() {
               </div>
             </div>
           ) : (
-            <StudentsTable rows={filteredRows} />
+            <StudentsTable
+              rows={filteredRows}
+              page={page}
+              limit={limit}
+              total={total}
+              totalPages={totalPages}
+              loading={status === "loading"}
+              onChangePage={(p: any) => {
+                const next = Math.max(1, Math.min(totalPages, p));
+                setPage(next);
+                doFetch({ page: next });
+              }}
+              onChangeLimit={(l: any) => {
+                setLimit(l);
+                setPage(1);
+                doFetch({ page: 1, limit: l });
+              }}
+            />
           )}
         </CardContent>
       </Card>

@@ -28,7 +28,7 @@ export type DashboardResponse = {
   class: any;
   semester: any;
   summary: any;
-  students: any; // paginationResponse hoặc array tùy BE bạn trả
+  students: any; 
 };
 
 export type WarningRule = {
@@ -127,4 +127,24 @@ export const advisorService = {
     const res = await api.post('/advisor/notes', body);
     return res.data;
   },
+
+    async bulkUpdateWarningStatus(body: {
+    ids: string[];
+    status: "Draft" | "Acknowledged" | "Resolved";
+  }) {
+    const res = await api.patch("/advisor/warnings/bulk-status", body);
+    return res.data;
+  },
+
+  async getWarningDetail(warningId: string) {
+    const res = await api.get(`/advisor/warnings/${warningId}`);
+    return res.data;
+  },
+  async getStudentTimeline(studentId: string, params?: { semester_id?: string }) {
+    const res = await api.get(`/advisor/students/${studentId}/timeline`, { params });
+    return res.data;
+  },
+
 };
+
+
