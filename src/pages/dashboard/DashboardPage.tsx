@@ -17,12 +17,13 @@ import { Users, GraduationCap, TriangleAlert, Send } from "lucide-react";
 import DashboardToolbar from "./components/DashboardToolbar";
 import StudentFilters, { DEFAULT_FILTERS, type StudentFilterState } from "./components/StudentFilters";
 import StudentsTable from "./components/StudentsTable";
-import KpiCard from "@/pages/dashboard/components/KpiCard";
+import KpiCard from "./components/KpiCard";
 
 function safeNumber(n: any, fallback = 0) {
   const num = typeof n === "number" ? n : Number(n);
   return Number.isFinite(num) ? num : fallback;
 }
+
 function parseMaybeNumber(s: string): number | null {
   const t = (s ?? "").trim();
   if (!t) return null;
@@ -43,16 +44,13 @@ export default function DashboardPage() {
   const status: "idle" | "loading" | "succeeded" | "failed" = advisor?.status ?? "idle";
   const error: string | null = advisor?.error ?? null;
 
-  // server paging
   const [page, setPage] = useState<number>(1);
   const [limit, setLimit] = useState<number>(10);
-
-  // FE filters
   const [filters, setFilters] = useState<StudentFilterState>(DEFAULT_FILTERS);
 
   // 1) load meta once
   useEffect(() => {
-    dispatch(fetchClassesThunk());
+    dispatch(fetchClassesThunk(undefined));
     dispatch(fetchSemestersThunk());
   }, [dispatch]);
 
@@ -63,17 +61,19 @@ export default function DashboardPage() {
     if (first) dispatch(setSelectedClass(first));
   }, [classes, selectedClassId, dispatch]);
 
-  // 3) auto select current semester if none (optional)
+  // 3) auto select current semester if none (bắt buộc)
   useEffect(() => {
     if (selectedSemesterId) return;
     const current = semesters.find((s: any) => s?.is_current)?.id ?? semesters?.[0]?.id;
     if (current) dispatch(setSelectedSemester(current));
   }, [semesters, selectedSemesterId, dispatch]);
 
-  // helper: fetch dashboard
+  const canFetch = Boolean(selectedClassId && selectedSemesterId);
+
+  // helper: fetch dashboard (warned_only=true)
   const doFetch = useCallback(
     (opts?: { page?: number; limit?: number; q?: string }) => {
-      if (!selectedClassId) return;
+      if (!selectedClassId || !selectedSemesterId) return;
 
       const p = opts?.page ?? page;
       const l = opts?.limit ?? limit;
@@ -82,10 +82,11 @@ export default function DashboardPage() {
       dispatch(
         fetchDashboardThunk({
           class_id: selectedClassId,
-          semester_id: selectedSemesterId ?? undefined,
+          semester_id: selectedSemesterId,
           page: p,
           limit: l,
           q: q || undefined,
+          warned_only: true, // ✅ chỉ SV có cảnh báo trong kỳ
         })
       );
     },
@@ -94,39 +95,45 @@ export default function DashboardPage() {
 
   // 4) refetch when class/semester changes (reset page)
   useEffect(() => {
-    if (!selectedClassId) return;
+    if (!canFetch) return;
     setPage(1);
     doFetch({ page: 1 });
-  }, [selectedClassId, selectedSemesterId]); // eslint-disable-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedClassId, selectedSemesterId]);
 
-  // 5) server-side search q (debounce nhẹ)
+  // 5) server-side search q (debounce)
   useEffect(() => {
-    if (!selectedClassId) return;
+    if (!canFetch) return;
     const t = setTimeout(() => {
       setPage(1);
       doFetch({ page: 1 });
     }, 350);
     return () => clearTimeout(t);
-  }, [filters.q, selectedClassId]); // eslint-disable-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filters.q, selectedClassId, selectedSemesterId]);
 
   const reload = useCallback(() => {
-    if (!selectedClassId) return;
+    if (!canFetch) return;
     doFetch();
-  }, [selectedClassId, doFetch]);
+  }, [canFetch, doFetch]);
 
   const summary = dashboard?.summary ?? null;
   const studentsPaging = dashboard?.students ?? null;
 
-  // backend buildPaginationResponse thường là { data, total, page, limit, totalPages }
   const rows: any[] = studentsPaging?.data ?? [];
+  // Dashboard: chỉ hiển thị SV có cảnh báo trong kỳ
+const warnedRows = useMemo(() => {
+  return (rows ?? []).filter((r: any) => Number(r?.warnings_total ?? 0) > 0);
+}, [rows]);
+
   const total = safeNumber(studentsPaging?.total, rows.length);
   const totalPages = safeNumber(studentsPaging?.totalPages, 1);
 
-  // Apply client-side filters (ngoại trừ q đã filter ở server rồi, nhưng giữ cũng không sao)
+  // client filters
   const filteredRows = useMemo(() => {
-    let out = [...rows];
+    let out = [...warnedRows];
 
-    // q (optional redundancy)
+
     const q = filters.q.trim().toLowerCase();
     if (q) {
       out = out.filter((r) => {
@@ -142,10 +149,9 @@ export default function DashboardPage() {
     }
 
     if (filters.dataStatus !== "all") {
-      const want = filters.dataStatus; // ok | missing | error
+      const want = filters.dataStatus;
       out = out.filter((r) => {
         const ds = String(r?.snapshot?.data_status ?? "");
-        // backend có thể trả missing_data
         if (want === "missing") return ds === "missing" || ds === "missing_data";
         return ds === want;
       });
@@ -163,21 +169,12 @@ export default function DashboardPage() {
 
     const gpaMin = parseMaybeNumber(filters.gpaMin);
     const gpaMax = parseMaybeNumber(filters.gpaMax);
-    if (gpaMin !== null) {
-      out = out.filter((r) => safeNumber(r?.snapshot?.gpa_semester, -Infinity) >= gpaMin);
-    }
-    if (gpaMax !== null) {
-      out = out.filter((r) => safeNumber(r?.snapshot?.gpa_semester, Infinity) <= gpaMax);
-    }
+    if (gpaMin !== null) out = out.filter((r) => safeNumber(r?.snapshot?.gpa_semester, -Infinity) >= gpaMin);
+    if (gpaMax !== null) out = out.filter((r) => safeNumber(r?.snapshot?.gpa_semester, Infinity) <= gpaMax);
 
     const failedMin = parseMaybeNumber(filters.failedCoursesMin);
-    if (failedMin !== null) {
-      out = out.filter(
-        (r) => safeNumber(r?.snapshot?.failed_courses_count_semester, 0) >= failedMin
-      );
-    }
+    if (failedMin !== null) out = out.filter((r) => safeNumber(r?.snapshot?.failed_courses_count_semester, 0) >= failedMin);
 
-    // Sort
     out.sort((a, b) => {
       const nameA = String(a?.student?.full_name ?? "");
       const nameB = String(b?.student?.full_name ?? "");
@@ -208,15 +205,10 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-5">
-      {/* Header */}
       <div className="space-y-2">
         <div>
-          <h1 className="text-xl md:text-2xl font-semibold tracking-tight text-slate-900">
-            Advisor Dashboard
-          </h1>
-          <p className="text-sm text-slate-600">
-            Theo dõi tổng quan & danh sách sinh viên theo lớp/học kỳ.
-          </p>
+          <h1 className="text-xl md:text-2xl font-semibold tracking-tight text-slate-900">Advisor Dashboard</h1>
+          <p className="text-sm text-slate-600">Danh sách SV bị cảnh báo theo lớp/học kỳ.</p>
         </div>
         <Separator />
       </div>
@@ -244,25 +236,18 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* KPI */}
       <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
         <KpiCard
-          label="Tổng sinh viên"
+          label="SV bị cảnh báo"
           tone="sky"
           icon={Users}
           value={summary ? summary.students_total : <Skeleton className="h-7 w-16" />}
         />
         <KpiCard
-          label="GPA trung bình (HK)"
+          label="GPA TB (nhóm cảnh báo)"
           tone="indigo"
           icon={GraduationCap}
-          value={
-            summary ? (
-              safeNumber(summary.avg_gpa_semester, 0).toFixed(2)
-            ) : (
-              <Skeleton className="h-7 w-20" />
-            )
-          }
+          value={summary ? safeNumber(summary.avg_gpa_semester, 0).toFixed(2) : <Skeleton className="h-7 w-20" />}
         />
         <KpiCard
           label="Tổng cảnh báo"
@@ -278,18 +263,14 @@ export default function DashboardPage() {
         />
       </div>
 
-      {/* Filters FE */}
       <StudentFilters
-        value={filters}
-        onChange={(next) => {
-          // q sẽ trigger fetch (debounce) ở effect
-          setFilters(next);
-        }}
-        shownCount={filteredRows.length}
-        totalCount={rows.length}
-      />
+  value={filters}
+  onChange={setFilters}
+  shownCount={filteredRows.length}
+  totalCount={warnedRows.length}
+/>
 
-      {/* Students */}
+
       <Card className="border-slate-200/70">
         <CardHeader className="pb-3">
           <div className="flex items-start justify-between gap-3">
@@ -301,41 +282,38 @@ export default function DashboardPage() {
                     Trang {studentsPaging.page}/{studentsPaging.totalPages} • Tổng {studentsPaging.total} SV
                   </>
                 ) : (
-                  "Chọn lớp để hiển thị danh sách."
+                  "Chọn lớp & học kỳ để hiển thị."
                 )}
               </CardDescription>
             </div>
 
             <Badge variant="outline" className="border-slate-300 text-slate-700">
-              Đang lọc: {filteredRows.length}/{rows.length}
+              Đang lọc: {filteredRows.length}/{warnedRows.length}
             </Badge>
           </div>
         </CardHeader>
 
         <CardContent>
-          {status === "loading" && !dashboard ? (
+          {!canFetch ? (
+            <div className="rounded-lg border border-dashed p-8 text-center">
+              <div className="text-sm font-medium text-slate-900">Vui lòng chọn lớp và học kỳ</div>
+              <div className="mt-1 text-sm text-slate-600">Hệ thống sẽ tự tải dữ liệu sau khi bạn chọn đầy đủ.</div>
+            </div>
+          ) : status === "loading" && !dashboard ? (
             <div className="space-y-2">
               <Skeleton className="h-10 w-full" />
               <Skeleton className="h-10 w-full" />
               <Skeleton className="h-10 w-full" />
             </div>
-          ) : !selectedClassId ? (
-            <div className="rounded-lg border border-dashed p-8 text-center">
-              <div className="text-sm font-medium text-slate-900">Vui lòng chọn lớp</div>
-              <div className="mt-1 text-sm text-slate-600">
-                Sau khi chọn lớp, hệ thống sẽ tự tải dữ liệu.
-              </div>
-            </div>
           ) : filteredRows.length === 0 ? (
             <div className="rounded-lg border border-dashed p-8 text-center">
-              <div className="text-sm font-medium text-slate-900">Không có kết quả phù hợp</div>
-              <div className="mt-1 text-sm text-slate-600">
-                Hãy thử nới điều kiện lọc hoặc bấm “Xoá lọc”.
-              </div>
+              <div className="text-sm font-medium text-slate-900">Không có SV bị cảnh báo phù hợp</div>
+              <div className="mt-1 text-sm text-slate-600">Hãy thử nới điều kiện lọc hoặc đổi học kỳ.</div>
             </div>
           ) : (
             <StudentsTable
               rows={filteredRows}
+              semesterId={selectedSemesterId!}
               page={page}
               limit={limit}
               total={total}

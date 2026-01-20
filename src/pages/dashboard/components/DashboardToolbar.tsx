@@ -1,17 +1,10 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { RefreshCcw, Info } from "lucide-react";
-import { StatusBadge, type LoadStatus } from "@/pages/dashboard/components/StatusBadge";
+import { StatusBadge, type LoadStatus } from "./StatusBadge";
 
 const DEFAULT_CLASS = "__no_class__";
-const DEFAULT_SEMESTER = "__default_semester__";
 
 type Props = {
   classes: any[];
@@ -20,7 +13,7 @@ type Props = {
   selectedSemesterId: string | null;
   status?: LoadStatus;
   onChangeClass: (classId: string) => void;
-  onChangeSemester: (semesterId: string | null) => void;
+  onChangeSemester: (semesterId: string) => void; // ✅ bắt buộc chọn
   onReload: () => void;
 };
 
@@ -34,7 +27,7 @@ export default function DashboardToolbar({
   onChangeSemester,
   onReload,
 }: Props) {
-  const canReload = Boolean(selectedClassId) && status !== "loading";
+  const canReload = Boolean(selectedClassId && selectedSemesterId) && status !== "loading";
 
   return (
     <Card className="border-slate-200/70">
@@ -43,9 +36,7 @@ export default function DashboardToolbar({
           <Info className="h-4 w-4 text-slate-700" />
           Bộ lọc dữ liệu
         </CardTitle>
-        <CardDescription className="text-slate-600">
-          Chọn lớp (bắt buộc) và học kỳ (tuỳ chọn).
-        </CardDescription>
+        <CardDescription className="text-slate-600">Chọn lớp và học kỳ để xem danh sách SV bị cảnh báo.</CardDescription>
       </CardHeader>
 
       <CardContent className="space-y-3">
@@ -82,19 +73,21 @@ export default function DashboardToolbar({
             </Select>
           </div>
 
-          {/* Semester */}
+          {/* Semester (bắt buộc) */}
           <div className="space-y-1">
             <div className="text-xs font-medium text-slate-600">Học kỳ</div>
             <Select
-              value={selectedSemesterId ?? DEFAULT_SEMESTER}
-              onValueChange={(v) => onChangeSemester(v === DEFAULT_SEMESTER ? null : v)}
+              value={selectedSemesterId ?? ""}
+              onValueChange={(v) => {
+                if (!v) return;
+                onChangeSemester(v);
+              }}
             >
               <SelectTrigger className="bg-white">
-                <SelectValue placeholder="(mặc định)" />
+                <SelectValue placeholder="Chọn học kỳ" />
               </SelectTrigger>
 
               <SelectContent>
-                <SelectItem value={DEFAULT_SEMESTER}>(mặc định)</SelectItem>
                 {semesters.map((s: any) => {
                   const id = s?.id;
                   if (!id) return null;
@@ -114,7 +107,7 @@ export default function DashboardToolbar({
             <div className="w-full rounded-lg border border-slate-200 bg-slate-50 p-3">
               <div className="text-xs text-slate-600">Trạng thái</div>
               <div className="mt-1 flex items-center justify-between gap-2">
-                <StatusBadge status={status || "idle"} hasSelection={Boolean(selectedClassId)} />
+                <StatusBadge status={status || "idle"} hasSelection={Boolean(selectedClassId && selectedSemesterId)} />
                 <Button
                   onClick={onReload}
                   disabled={!canReload}
@@ -129,9 +122,9 @@ export default function DashboardToolbar({
           </div>
         </div>
 
-        {!selectedClassId && (
+        {(!selectedClassId || !selectedSemesterId) && (
           <div className="text-xs text-slate-500">
-            * Chưa chọn lớp: Dashboard chưa thể tải dữ liệu.
+            * Vui lòng chọn đủ lớp và học kỳ để tải dữ liệu.
           </div>
         )}
       </CardContent>

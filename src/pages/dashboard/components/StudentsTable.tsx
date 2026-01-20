@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 import { Link } from "react-router-dom";
+
 function safeNumber(n: any, fallback = 0) {
   const num = typeof n === "number" ? n : Number(n);
   return Number.isFinite(num) ? num : fallback;
@@ -29,16 +30,22 @@ function academicStatusBadge(s: string) {
           Đang học
         </Badge>
       );
-    case "paused":
+    case "leave":
       return (
         <Badge className="bg-amber-50 text-amber-800 border border-amber-200">
-          Tạm dừng
+          Tạm nghỉ
         </Badge>
       );
-    case "dropped":
+    case "dropout":
       return (
         <Badge className="bg-rose-50 text-rose-800 border border-rose-200">
           Thôi học
+        </Badge>
+      );
+    case "graduated":
+      return (
+        <Badge className="bg-slate-100 text-slate-800 border border-slate-200">
+          Tốt nghiệp
         </Badge>
       );
     default:
@@ -51,9 +58,7 @@ function academicStatusBadge(s: string) {
 }
 
 function dataStatusBadge(s: string) {
-  // backend có thể trả "missing_data"
   const norm = s === "missing_data" ? "missing" : s;
-
   switch (norm) {
     case "ok":
       return (
@@ -106,8 +111,9 @@ function warningsBadge(n: number) {
 
 type Props = {
   rows: any[];
-  loading?: boolean;
+  semesterId: string; // ✅ thêm prop này
 
+  loading?: boolean;
   page: number;
   limit: number;
   total: number;
@@ -119,6 +125,7 @@ type Props = {
 
 export default function StudentsTable({
   rows,
+  semesterId,
   loading,
   page,
   limit,
@@ -135,7 +142,7 @@ export default function StudentsTable({
             <TableRow>
               <TableHead className="min-w-40">Sinh viên</TableHead>
               <TableHead className="min-w-30">MSSV</TableHead>
-              <TableHead>Trạng thái</TableHead>
+              <TableHead>Học vụ</TableHead>
               <TableHead className="text-right">GPA HK</TableHead>
               <TableHead className="text-right">GPA TL</TableHead>
               <TableHead className="text-right">TC đậu</TableHead>
@@ -165,22 +172,20 @@ export default function StudentsTable({
                   warningsTotal >= 2
                     ? "bg-rose-50/40 hover:bg-rose-50/60"
                     : warningsTotal === 1
-                      ? "bg-amber-50/30 hover:bg-amber-50/50"
-                      : "hover:bg-slate-50/70";
+                    ? "bg-amber-50/30 hover:bg-amber-50/50"
+                    : "hover:bg-slate-50/70";
 
                 return (
                   <TableRow
-                    key={
-                      st.id ??
-                      st.student_code ??
-                      `${st.full_name ?? "row"}-${st.student_code ?? "x"}`
-                    }
+                    key={st.id ?? st.student_code ?? `${st.full_name}-x`}
                     className={cn(rowTone)}
                   >
                     <TableCell className="font-medium text-slate-900">
                       {st?.id ? (
                         <Link
-                          to={`/students/${st.id}`}
+                          to={`/students/${st.id}?semester_id=${encodeURIComponent(
+                            semesterId
+                          )}`} // ✅ giữ học kỳ khi vào detail/timeline
                           className="hover:underline hover:underline-offset-4"
                         >
                           {st.full_name ?? "-"}

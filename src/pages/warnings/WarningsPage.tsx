@@ -1,311 +1,194 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { advisorService } from "@/services/advisor.service";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
-import {
-  fetchClassesThunk,
-  fetchSemestersThunk,
-  setSelectedClass,
-  setSelectedSemester,
-} from "@/store/slices/advisorSlice";
+import { fetchClassesThunk, fetchSemestersThunk, setSelectedClass, setSelectedSemester } from "@/store/slices/advisorSlice";
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Separator } from "@/components/ui/separator";
-import { Skeleton } from "@/components/ui/skeleton";
+import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Separator } from "@/components/ui/separator";
 
-import { advisorService } from "@/services/advisor.service";
-import type { WarningStatusFilter } from "@/pages/warnings/components/WarningsToolbar";
-import WarningsToolbar from "@/pages/warnings/components/WarningsToolbar";
-import WarningsTable from "@/pages/warnings/components/WarningsTable";
-import PreviewWarningsDialog from "@/pages/warnings/components/PreviewWarningsDialog";
-
-function safeNumber(n: any, fallback = 0) {
-  const num = typeof n === "number" ? n : Number(n);
-  return Number.isFinite(num) ? num : fallback;
+function statusBadge(s: string) {
+  const cls =
+    s === "Resolved" ? "bg-emerald-50 text-emerald-900 border border-emerald-200" :
+    s === "Acknowledged" ? "bg-amber-50 text-amber-900 border border-amber-200" :
+    s === "Sent" ? "bg-sky-50 text-sky-900 border border-sky-200" :
+    s === "SendFailed" ? "bg-rose-50 text-rose-900 border border-rose-200" :
+    "border-slate-300 text-slate-700";
+  return <Badge variant={s === "Draft" ? "outline" : "default"} className={cls}>{s}</Badge>;
 }
-
-type WarningRow = {
-  id: string;
-  status: "Draft" | "Sent" | "SendFailed" | "Acknowledged" | "Resolved" | string;
-  detected_value: number | null;
-  reason_text: string;
-  student: { id: string; student_code: string; full_name: string };
-  rule: { id: string; rule_code: string; rule_name: string };
-  send?: { channel?: string | null; status?: string | null; error?: string | null; sent_at?: string | null };
-  created_at?: string;
-  updated_at?: string;
-};
-
-type PagingResp<T> = {
-  data: T[];
-  page: number;
-  limit: number;
-  total: number;
-  totalPages: number;
-};
 
 export default function WarningsPage() {
   const dispatch = useAppDispatch();
-  const advisor = useAppSelector((s: any) => s.advisor);
+  const classes = useAppSelector((s: any) => s.advisor?.classes ?? []);
+  const semesters = useAppSelector((s: any) => s.advisor?.semesters ?? []);
+  const selectedClassId = useAppSelector((s: any) => s.advisor?.selectedClassId) as string | null;
+  const selectedSemesterId = useAppSelector((s: any) => s.advisor?.selectedSemesterId) as string | null;
 
-  const classes: any[] = advisor?.classes ?? [];
-  const semesters: any[] = advisor?.semesters ?? [];
-  const selectedClassId: string | null = advisor?.selectedClassId ?? null;
-  const selectedSemesterId: string | null = advisor?.selectedSemesterId ?? null;
+  const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(20);
 
-  // local state for warnings
-  const [statusFilter, setStatusFilter] = useState<WarningStatusFilter>("all");
-  const [page, setPage] = useState<number>(1);
-  const [limit, setLimit] = useState<number>(10);
-
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [resp, setResp] = useState<any>(null);
 
-  const [paging, setPaging] = useState<PagingResp<WarningRow> | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Record<string, boolean>>({});
 
-  // selection
-  const [selectedIds, setSelectedIds] = useState<string[]>([]);
-
-  // preview dialog
-  const [previewOpen, setPreviewOpen] = useState(false);
-  const [previewLoading, setPreviewLoading] = useState(false);
-  const [previewData, setPreviewData] = useState<any>(null);
-
-  // top message
-  const [message, setMessage] = useState<string | null>(null);
-
-  // load meta once
   useEffect(() => {
-    dispatch(fetchClassesThunk());
+    dispatch(fetchClassesThunk(undefined));
     dispatch(fetchSemestersThunk());
   }, [dispatch]);
 
-  // auto select first class if none
   useEffect(() => {
     if (selectedClassId) return;
     const first = classes.find((a: any) => a?.class?.id)?.class?.id;
     if (first) dispatch(setSelectedClass(first));
   }, [classes, selectedClassId, dispatch]);
 
-  // auto select current semester if none (optional)
   useEffect(() => {
     if (selectedSemesterId) return;
-    const current = semesters.find((s: any) => s?.is_current)?.id ?? semesters?.[0]?.id;
-    if (current) dispatch(setSelectedSemester(current));
+    const cur = semesters.find((s: any) => s?.is_current)?.id ?? semesters?.[0]?.id;
+    if (cur) dispatch(setSelectedSemester(cur));
   }, [semesters, selectedSemesterId, dispatch]);
 
-  const fetchWarnings = useCallback(async () => {
-    if (!selectedClassId) return;
+  const canFetch = Boolean(selectedClassId && selectedSemesterId);
 
+  const load = useCallback(async () => {
+    if (!selectedClassId || !selectedSemesterId) return;
     setLoading(true);
     setError(null);
-    setMessage(null);
-
     try {
       const res = await advisorService.listWarnings({
         class_id: selectedClassId,
-        semester_id: selectedSemesterId ?? undefined,
+        semester_id: selectedSemesterId,
         status: statusFilter === "all" ? undefined : statusFilter,
         page,
         limit,
       });
-
-      // assume buildPaginationResponse shape
-      setPaging(res);
-      setSelectedIds([]); // reset selection after reload
+      setResp(res);
+      setSelectedIds({});
     } catch (e: any) {
-      setError(String(e?.message ?? "Load warnings failed"));
+      setError(e?.response?.data?.message ?? e?.message ?? "Load warnings failed");
     } finally {
       setLoading(false);
     }
   }, [selectedClassId, selectedSemesterId, statusFilter, page, limit]);
 
-  // refetch when filters change
   useEffect(() => {
-    if (!selectedClassId) return;
-    fetchWarnings();
-  }, [fetchWarnings, selectedClassId]);
+    if (!canFetch) return;
+    load();
+  }, [canFetch, load]);
 
-  const rows: WarningRow[] = useMemo(() => paging?.data ?? [], [paging]);
-  const total = safeNumber(paging?.total, rows.length);
-  const totalPages = safeNumber(paging?.totalPages, 1);
+  const rows: any[] = resp?.data ?? resp?.items ?? [];
+  const total = resp?.total ?? rows.length;
+  const totalPages = resp?.totalPages ?? 1;
 
-  const selectedCount = selectedIds.length;
+  const checkedIds = useMemo(() => Object.entries(selectedIds).filter(([, v]) => v).map(([k]) => k), [selectedIds]);
 
-  const onPreview = useCallback(async () => {
-    if (!selectedClassId) return;
-    setPreviewOpen(true);
-    setPreviewLoading(true);
-    setPreviewData(null);
+  const toggleAll = (val: boolean) => {
+    const next: Record<string, boolean> = {};
+    rows.forEach((r: any) => { next[String(r.id)] = val; });
+    setSelectedIds(next);
+  };
 
-    try {
-      const res = await advisorService.previewWarnings({
-        class_id: selectedClassId,
-        semester_id: selectedSemesterId ?? undefined,
-      });
-      setPreviewData(res);
-    } catch (e: any) {
-      setPreviewData({ error: String(e?.message ?? "Preview failed") });
-    } finally {
-      setPreviewLoading(false);
-    }
-  }, [selectedClassId, selectedSemesterId]);
-
-  const onGenerateDraft = useCallback(async () => {
-    if (!selectedClassId) return;
-    setLoading(true);
-    setMessage(null);
+  const onUpdateOne = async (warningId: string, status: "Draft" | "Acknowledged" | "Resolved") => {
+    setSaving(true);
     setError(null);
-
     try {
-      await advisorService.generateWarnings({
-        class_id: selectedClassId,
-        semester_id: selectedSemesterId ?? undefined,
-        create_status: "Draft",
-      });
-      setMessage("Đã generate warnings (Draft).");
-      setPage(1);
-      await fetchWarnings();
+      await advisorService.updateWarningStatus(warningId, status);
+      await load();
     } catch (e: any) {
-      setError(String(e?.message ?? "Generate draft failed"));
+      setError(e?.response?.data?.message ?? e?.message ?? "Update warning failed");
     } finally {
-      setLoading(false);
+      setSaving(false);
     }
-  }, [selectedClassId, selectedSemesterId, fetchWarnings]);
+  };
 
-  const onGenerateAndSend = useCallback(async () => {
-    if (!selectedClassId) return;
-    setLoading(true);
-    setMessage(null);
+  const onBulk = async (status: "Draft" | "Acknowledged" | "Resolved") => {
+    if (checkedIds.length === 0) return;
+    setSaving(true);
     setError(null);
-
     try {
-      await advisorService.generateWarnings({
-        class_id: selectedClassId,
-        semester_id: selectedSemesterId ?? undefined,
-        create_status: "Sent",
-        send_channel: "in_app",
-      });
-      setMessage("Đã generate + gửi warnings.");
-      setPage(1);
-      await fetchWarnings();
+      await advisorService.bulkUpdateWarningStatus({ ids: checkedIds, status });
+      await load();
     } catch (e: any) {
-      setError(String(e?.message ?? "Generate & send failed"));
+      setError(e?.response?.data?.message ?? e?.message ?? "Bulk update failed");
     } finally {
-      setLoading(false);
+      setSaving(false);
     }
-  }, [selectedClassId, selectedSemesterId, fetchWarnings]);
-
-  const onSendSelected = useCallback(async () => {
-    if (!selectedCount) return;
-    setLoading(true);
-    setMessage(null);
-    setError(null);
-
-    try {
-      await advisorService.sendWarnings({
-        warning_ids: selectedIds,
-        channel: "in_app",
-      });
-      setMessage(`Đã gửi ${selectedCount} cảnh báo.`);
-      await fetchWarnings();
-    } catch (e: any) {
-      setError(String(e?.message ?? "Send warnings failed"));
-    } finally {
-      setLoading(false);
-    }
-  }, [selectedIds, selectedCount, fetchWarnings]);
-
-  const onBulkStatus = useCallback(
-    async (status: "Acknowledged" | "Resolved") => {
-      if (!selectedCount) return;
-      setLoading(true);
-      setMessage(null);
-      setError(null);
-
-      try {
-        await advisorService.bulkUpdateWarningStatus({
-          ids: selectedIds,
-          status,
-        });
-        setMessage(`Đã cập nhật trạng thái ${selectedCount} warning -> ${status}.`);
-        await fetchWarnings();
-      } catch (e: any) {
-        setError(String(e?.message ?? "Bulk update failed"));
-      } finally {
-        setLoading(false);
-      }
-    },
-    [selectedIds, selectedCount, fetchWarnings]
-  );
-
-  const onUpdateOneStatus = useCallback(
-    async (warningId: string, status: "Draft" | "Acknowledged" | "Resolved") => {
-      setLoading(true);
-      setMessage(null);
-      setError(null);
-
-      try {
-        await advisorService.updateWarningStatus(warningId, status);
-        setMessage(`Đã cập nhật warning ${warningId} -> ${status}.`);
-        await fetchWarnings();
-      } catch (e: any) {
-        setError(String(e?.message ?? "Update status failed"));
-      } finally {
-        setLoading(false);
-      }
-    },
-    [fetchWarnings]
-  );
+  };
 
   return (
-    <div className="space-y-5">
-      {/* Header */}
-      <div className="space-y-2">
-        <div>
-          <h1 className="text-xl md:text-2xl font-semibold tracking-tight text-slate-900">
-            Cảnh báo sớm
-          </h1>
-          <p className="text-sm text-slate-600">
-            Preview → Generate (Draft) → Send / Bulk status.
-          </p>
-        </div>
-        <Separator />
+    <div className="space-y-4">
+      <div>
+        <div className="text-xl font-semibold text-slate-900">Cảnh báo sớm</div>
+        <div className="text-sm text-slate-600">Xem danh sách warnings theo lớp/học kỳ và cập nhật trạng thái.</div>
       </div>
+      <Separator />
 
-      <WarningsToolbar
-        classes={classes}
-        semesters={semesters}
-        selectedClassId={selectedClassId}
-        selectedSemesterId={selectedSemesterId}
-        statusFilter={statusFilter}
-        loading={loading}
-        selectedCount={selectedCount}
-        onChangeClass={(id: any) => {
-          setPage(1);
-          dispatch(setSelectedClass(id));
-        }}
-        onChangeSemester={(id: any) => {
-          setPage(1);
-          dispatch(setSelectedSemester(id));
-        }}
-        onChangeStatusFilter={(s: any) => {
-          setPage(1);
-          setStatusFilter(s);
-        }}
-        onReload={fetchWarnings}
-        onPreview={onPreview}
-        onGenerateDraft={onGenerateDraft}
-        onGenerateAndSend={onGenerateAndSend}
-        onSendSelected={onSendSelected}
-        onBulkAcknowledge={() => onBulkStatus("Acknowledged")}
-        onBulkResolve={() => onBulkStatus("Resolved")}
-      />
+      <Card className="border-slate-200/70">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base">Bộ lọc</CardTitle>
+          <CardDescription className="text-slate-600">Chọn lớp/học kỳ (bắt buộc) và trạng thái (tuỳ chọn).</CardDescription>
+        </CardHeader>
 
-      {message && (
-        <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
-          {message}
-        </div>
-      )}
+        <CardContent className="grid grid-cols-1 gap-3 md:grid-cols-4">
+          <div>
+            <div className="text-xs font-medium text-slate-600 mb-1">Lớp</div>
+            <select
+              className="h-9 w-full rounded-md border border-slate-200 bg-white px-2 text-sm"
+              value={selectedClassId ?? ""}
+              onChange={(e) => { setPage(1); dispatch(setSelectedClass(e.target.value)); }}
+            >
+              {classes.map((a: any) => (
+                <option key={a.assignment_id ?? a?.class?.id} value={a?.class?.id}>
+                  {a?.class?.class_code} — {a?.class?.class_name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <div className="text-xs font-medium text-slate-600 mb-1">Học kỳ</div>
+            <select
+              className="h-9 w-full rounded-md border border-slate-200 bg-white px-2 text-sm"
+              value={selectedSemesterId ?? ""}
+              onChange={(e) => { setPage(1); dispatch(setSelectedSemester(e.target.value)); }}
+            >
+              {semesters.map((s: any) => (
+                <option key={s.id} value={s.id}>
+                  {s.semester_code} — {s.name}{s.is_current ? " (hiện tại)" : ""}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <div className="text-xs font-medium text-slate-600 mb-1">Status</div>
+            <select
+              className="h-9 w-full rounded-md border border-slate-200 bg-white px-2 text-sm"
+              value={statusFilter}
+              onChange={(e) => { setPage(1); setStatusFilter(e.target.value); }}
+            >
+              <option value="all">Tất cả</option>
+              <option value="Draft">Draft</option>
+              <option value="Sent">Sent</option>
+              <option value="SendFailed">SendFailed</option>
+              <option value="Acknowledged">Acknowledged</option>
+              <option value="Resolved">Resolved</option>
+            </select>
+          </div>
+
+          <div className="flex items-end gap-2">
+            <Button variant="outline" className="border-slate-300" onClick={load} disabled={!canFetch || loading || saving}>
+              Reload
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
 
       {error && (
         <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
@@ -317,72 +200,108 @@ export default function WarningsPage() {
         <CardHeader className="pb-3">
           <div className="flex items-start justify-between gap-3">
             <div>
-              <CardTitle className="text-base text-slate-900">Danh sách cảnh báo</CardTitle>
+              <CardTitle className="text-base">Danh sách warnings</CardTitle>
               <CardDescription className="text-slate-600">
-                {paging ? (
-                  <>
-                    Trang {paging.page}/{paging.totalPages} • Tổng {paging.total} warnings
-                  </>
-                ) : (
-                  "Chọn lớp để tải dữ liệu."
-                )}
+                {loading ? "Đang tải..." : `Tổng ${total} • Trang ${page}/${totalPages}`}
               </CardDescription>
             </div>
 
-            <Badge variant="outline" className="border-slate-300 text-slate-700">
-              Đã chọn: {selectedCount}
-            </Badge>
+            <div className="flex items-center gap-2">
+              <Button variant="outline" className="border-slate-300" disabled={saving || checkedIds.length === 0} onClick={() => onBulk("Acknowledged")}>
+                Bulk Ack
+              </Button>
+              <Button className="bg-slate-900 text-slate-50 hover:bg-slate-800" disabled={saving || checkedIds.length === 0} onClick={() => onBulk("Resolved")}>
+                Bulk Resolve
+              </Button>
+            </div>
           </div>
         </CardHeader>
 
-        <CardContent>
-          {!selectedClassId ? (
-            <div className="rounded-lg border border-dashed p-8 text-center">
-              <div className="text-sm font-medium text-slate-900">Vui lòng chọn lớp</div>
-              <div className="mt-1 text-sm text-slate-600">
-                Sau khi chọn lớp, hệ thống sẽ tải danh sách cảnh báo.
-              </div>
-            </div>
-          ) : loading && !paging ? (
+        <CardContent className="space-y-2">
+          {loading ? (
             <div className="space-y-2">
-              <Skeleton className="h-10 w-full" />
               <Skeleton className="h-10 w-full" />
               <Skeleton className="h-10 w-full" />
             </div>
           ) : rows.length === 0 ? (
-            <div className="rounded-lg border border-dashed p-8 text-center">
-              <div className="text-sm font-medium text-slate-900">Chưa có cảnh báo</div>
-              <div className="mt-1 text-sm text-slate-600">
-                Hãy thử Preview hoặc Generate warnings.
-              </div>
+            <div className="rounded-lg border border-dashed p-6 text-center text-sm text-slate-600">
+              Không có warnings phù hợp.
             </div>
           ) : (
-            <WarningsTable
-              rows={rows}
-              loading={loading}
-              page={page}
-              limit={limit}
-              total={total}
-              totalPages={totalPages}
-              selectedIds={selectedIds}
-              onChangeSelectedIds={setSelectedIds}
-              onChangePage={(p: any) => setPage(p)}
-              onChangeLimit={(l: any) => {
-                setLimit(l);
-                setPage(1);
-              }}
-              onUpdateOneStatus={onUpdateOneStatus}
-            />
+            <>
+              <div className="flex items-center gap-2 text-sm">
+                <input type="checkbox" checked={checkedIds.length === rows.length} onChange={(e) => toggleAll(e.target.checked)} />
+                <span className="text-slate-600">Chọn tất cả</span>
+                <span className="text-slate-500">({checkedIds.length} đã chọn)</span>
+
+                <div className="ml-auto flex items-center gap-2">
+                  <select
+                    className="h-9 rounded-md border border-slate-200 bg-white px-2 text-sm"
+                    value={limit}
+                    onChange={(e) => { setLimit(Number(e.target.value)); setPage(1); }}
+                  >
+                    {[10, 20, 50, 100].map((x) => <option key={x} value={x}>{x}/trang</option>)}
+                  </select>
+                  <Button variant="outline" className="border-slate-300" disabled={page <= 1} onClick={() => setPage(page - 1)}>Trước</Button>
+                  <Button variant="outline" className="border-slate-300" disabled={page >= totalPages} onClick={() => setPage(page + 1)}>Sau</Button>
+                </div>
+              </div>
+
+              {rows.map((w: any) => (
+                <div key={w.id} className="rounded-lg border border-slate-200 p-3 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                  <div className="flex items-start gap-2">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(selectedIds[String(w.id)])}
+                      onChange={(e) => setSelectedIds((prev) => ({ ...prev, [String(w.id)]: e.target.checked }))}
+                    />
+                    <div>
+                      <div className="flex items-center gap-2">
+                        {statusBadge(String(w.status))}
+                        <div className="text-sm font-medium text-slate-900">
+                          {w?.rule?.rule_code ?? w?.rule_code ?? "RULE"} — {w?.rule?.rule_name ?? w?.rule_name ?? "Warning"}
+                        </div>
+                        <div className="text-xs text-slate-500">#{w.id}</div>
+                      </div>
+                      <div className="mt-1 text-sm text-slate-700">{w.reason_text ?? "-"}</div>
+                      <div className="mt-1 text-xs text-slate-500">
+                        SV: {w?.student?.student_code ?? w?.student_code ?? "-"} • detected: {String(w.detected_value ?? "-")}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="border-slate-300"
+                      disabled={saving || w.status === "Acknowledged" || w.status === "Resolved"}
+                      onClick={() => onUpdateOne(String(w.id), "Acknowledged")}
+                    >
+                      Ack
+                    </Button>
+                    <Button
+                      size="sm"
+                      className="bg-slate-900 text-slate-50 hover:bg-slate-800"
+                      disabled={saving || w.status === "Resolved"}
+                      onClick={() => onUpdateOne(String(w.id), "Resolved")}
+                    >
+                      Resolve
+                    </Button>
+
+                    {/* link nhanh qua chi tiết SV trong đúng semester */}
+                    {w?.student?.id && selectedSemesterId && (
+                      <Button size="sm" variant="outline" className="border-slate-300" asChild>
+                        <a href={`/students/${w.student.id}?semester_id=${encodeURIComponent(selectedSemesterId)}`}>SV</a>
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </>
           )}
         </CardContent>
       </Card>
-
-      <PreviewWarningsDialog
-        open={previewOpen}
-        onOpenChange={setPreviewOpen}
-        loading={previewLoading}
-        data={previewData}
-      />
     </div>
   );
 }

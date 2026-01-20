@@ -5,31 +5,11 @@ import type { LucideIcon } from "lucide-react";
 type Tone = "sky" | "indigo" | "amber" | "emerald" | "rose";
 
 const tone = {
-  sky: {
-    ring: "border-sky-200/60",
-    iconBg: "bg-sky-50 text-sky-700",
-    bar: "bg-sky-500/70",
-  },
-  indigo: {
-    ring: "border-indigo-200/60",
-    iconBg: "bg-indigo-50 text-indigo-700",
-    bar: "bg-indigo-500/70",
-  },
-  amber: {
-    ring: "border-amber-200/70",
-    iconBg: "bg-amber-50 text-amber-800",
-    bar: "bg-amber-500/70",
-  },
-  emerald: {
-    ring: "border-emerald-200/70",
-    iconBg: "bg-emerald-50 text-emerald-800",
-    bar: "bg-emerald-500/70",
-  },
-  rose: {
-    ring: "border-rose-200/70",
-    iconBg: "bg-rose-50 text-rose-800",
-    bar: "bg-rose-500/70",
-  },
+  sky: { ring: "border-sky-200/60", iconBg: "bg-sky-50 text-sky-700", bar: "bg-sky-500/70" },
+  indigo: { ring: "border-indigo-200/60", iconBg: "bg-indigo-50 text-indigo-700", bar: "bg-indigo-500/70" },
+  amber: { ring: "border-amber-200/70", iconBg: "bg-amber-50 text-amber-800", bar: "bg-amber-500/70" },
+  emerald: { ring: "border-emerald-200/70", iconBg: "bg-emerald-50 text-emerald-800", bar: "bg-emerald-500/70" },
+  rose: { ring: "border-rose-200/70", iconBg: "bg-rose-50 text-rose-800", bar: "bg-rose-500/70" },
 } as const;
 
 export default function KpiCard({
@@ -51,9 +31,7 @@ export default function KpiCard({
         <div className="flex items-center justify-between gap-3">
           <div>
             <div className="text-xs text-slate-600">{label}</div>
-            <div className="mt-1 text-2xl font-semibold text-slate-900">
-              {value}
-            </div>
+            <div className="mt-1 text-2xl font-semibold text-slate-900">{value}</div>
           </div>
           <div className={cn("rounded-xl border p-2", s.iconBg)}>
             <Icon className="h-5 w-5" />

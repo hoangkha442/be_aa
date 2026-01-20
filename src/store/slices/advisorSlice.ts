@@ -1,20 +1,18 @@
-import { createAsyncThunk, createSlice } from "@reduxjs/toolkit";
-import { advisorService } from "@/services/advisor.service";
+import { advisorService, type AdvisorClass, type DashboardResponse, type Semester } from "@/services/advisor.service";
+import { createAsyncThunk, createSlice, type PayloadAction } from "@reduxjs/toolkit";
+
+export type LoadStatus = "idle" | "loading" | "succeeded" | "failed";
 
 type AdvisorState = {
-  classes: any[];
-  semesters: any[];
+  classes: AdvisorClass[];
+  semesters: Semester[];
+
   selectedClassId: string | null;
   selectedSemesterId: string | null;
 
-  dashboard: any | null;
+  dashboard: DashboardResponse | null;
 
-  warnings: any | null; // paginated/list
-  preview: any | null;
-
-  notes: any | null;
-
-  status: "idle" | "loading" | "succeeded" | "failed";
+  status: LoadStatus;
   error: string | null;
 };
 
@@ -24,268 +22,118 @@ const initialState: AdvisorState = {
   selectedClassId: null,
   selectedSemesterId: null,
   dashboard: null,
-  warnings: null,
-  preview: null,
-  notes: null,
   status: "idle",
   error: null,
 };
 
+/** ===== Thunks ===== */
 export const fetchClassesThunk = createAsyncThunk(
-  "advisor/classes",
-  async (_, { rejectWithValue }) => {
+  "advisor/fetchClasses",
+  async (params: { include_inactive?: boolean } | undefined, { rejectWithValue }) => {
     try {
-      return await advisorService.getMyClasses();
+      return await advisorService.getMyClasses(params);
     } catch (e: any) {
-      return rejectWithValue(
-        e?.response?.data?.message ?? "Không tải được danh sách lớp"
-      );
+      return rejectWithValue(e?.response?.data?.message ?? e?.message ?? "Fetch classes failed");
     }
   }
 );
 
 export const fetchSemestersThunk = createAsyncThunk(
-  "advisor/semesters",
-  async (_, { rejectWithValue }) => {
+  "advisor/fetchSemesters",
+  async (_: void, { rejectWithValue }) => {
     try {
       return await advisorService.getSemesters();
     } catch (e: any) {
-      return rejectWithValue(
-        e?.response?.data?.message ?? "Không tải được học kỳ"
-      );
+      return rejectWithValue(e?.response?.data?.message ?? e?.message ?? "Fetch semesters failed");
     }
   }
 );
 
 export const fetchDashboardThunk = createAsyncThunk(
-  "advisor/dashboard",
+  "advisor/fetchDashboard",
   async (
     params: {
       class_id: string;
-      semester_id?: string;
+      semester_id: string;
       q?: string;
       page?: number;
       limit?: number;
+      warned_only?: boolean;
     },
     { rejectWithValue }
   ) => {
     try {
-      return await advisorService.getDashboard(params);
+      return await advisorService.getDashboard({
+        ...params,
+        warned_only: params.warned_only ?? true,
+      });
     } catch (e: any) {
-      return rejectWithValue(
-        e?.response?.data?.message ?? "Không tải được dashboard"
-      );
+      return rejectWithValue(e?.response?.data?.message ?? e?.message ?? "Fetch dashboard failed");
     }
   }
 );
 
-export const listWarningsThunk = createAsyncThunk(
-  "advisor/warnings/list",
-  async (
-    params: {
-      class_id: string;
-      semester_id?: string;
-      status?: string;
-      page?: number;
-      limit?: number;
-    },
-    { rejectWithValue }
-  ) => {
-    try {
-      return await advisorService.listWarnings(params);
-    } catch (e: any) {
-      return rejectWithValue(
-        e?.response?.data?.message ?? "Không tải được warnings"
-      );
-    }
-  }
-);
-
-export const previewWarningsThunk = createAsyncThunk(
-  "advisor/warnings/preview",
-  async (
-    params: { class_id: string; semester_id?: string },
-    { rejectWithValue }
-  ) => {
-    try {
-      return await advisorService.previewWarnings(params);
-    } catch (e: any) {
-      return rejectWithValue(
-        e?.response?.data?.message ?? "Không preview được warnings"
-      );
-    }
-  }
-);
-
-export const generateWarningsThunk = createAsyncThunk(
-  "advisor/warnings/generate",
-  async (
-    body: {
-      class_id: string;
-      semester_id?: string;
-      create_status: "Draft" | "Sent";
-      send_channel?: "in_app" | "email";
-    },
-    { rejectWithValue }
-  ) => {
-    try {
-      return await advisorService.generateWarnings(body);
-    } catch (e: any) {
-      return rejectWithValue(
-        e?.response?.data?.message ?? "Không generate được warnings"
-      );
-    }
-  }
-);
-
-export const sendWarningsThunk = createAsyncThunk(
-  "advisor/warnings/send",
-  async (
-    body: { warning_ids: string[]; channel?: "in_app" | "email" },
-    { rejectWithValue }
-  ) => {
-    try {
-      return await advisorService.sendWarnings(body);
-    } catch (e: any) {
-      return rejectWithValue(
-        e?.response?.data?.message ?? "Không gửi được warnings"
-      );
-    }
-  }
-);
-
-export const listNotesThunk = createAsyncThunk(
-  "advisor/notes/list",
-  async (student_id: string, { rejectWithValue }) => {
-    try {
-      return await advisorService.listNotes(student_id);
-    } catch (e: any) {
-      return rejectWithValue(
-        e?.response?.data?.message ?? "Không tải được notes"
-      );
-    }
-  }
-);
-
-export const createNoteThunk = createAsyncThunk(
-  "advisor/notes/create",
-  async (
-    body: {
-      student_id: string;
-      warning_id?: string;
-      content: string;
-      counseling_date?: string;
-      handling_status?: "not_contacted" | "contacted" | "monitoring" | "stable";
-      attachment_url?: string;
-    },
-    { rejectWithValue }
-  ) => {
-    try {
-      return await advisorService.createNote(body);
-    } catch (e: any) {
-      return rejectWithValue(
-        e?.response?.data?.message ?? "Không tạo được note"
-      );
-    }
-  }
-);
-
+/** ===== Slice ===== */
 const advisorSlice = createSlice({
   name: "advisor",
   initialState,
   reducers: {
-    setSelectedClass(state, action) {
+    setSelectedClass(state, action: PayloadAction<string | null>) {
       state.selectedClassId = action.payload;
+      // khi đổi lớp -> clear dashboard để UX rõ ràng
+      state.dashboard = null;
+      state.error = null;
     },
-    setSelectedSemester(state, action: { payload: string | null }) {
+    setSelectedSemester(state, action: PayloadAction<string | null>) {
       state.selectedSemesterId = action.payload;
+      state.dashboard = null;
+      state.error = null;
     },
-    clearPreview(state) {
-      state.preview = null;
+    clearAdvisorError(state) {
+      state.error = null;
     },
   },
-  extraReducers: (builder) => {
-    const loading = (state: AdvisorState) => {
-      state.status = "loading";
-      state.error = null;
-    };
-    const failed = (state: AdvisorState, action: any) => {
-      state.status = "failed";
-      state.error = action.payload ?? "Lỗi";
-    };
+  extraReducers: (b) => {
+    b.addCase(fetchClassesThunk.pending, (s) => {
+      s.status = "loading";
+      s.error = null;
+    });
+    b.addCase(fetchClassesThunk.fulfilled, (s, a) => {
+      s.status = "succeeded";
+      s.classes = a.payload ?? [];
+    });
+    b.addCase(fetchClassesThunk.rejected, (s, a: any) => {
+      s.status = "failed";
+      s.error = String(a.payload ?? "Fetch classes failed");
+    });
 
-    builder
-      .addCase(fetchClassesThunk.pending, loading)
-      .addCase(fetchClassesThunk.fulfilled, (state, action: any) => {
-        state.status = "succeeded";
-        state.classes = action.payload ?? [];
-        // auto select first class
-        if (!state.selectedClassId && state.classes.length) {
-          state.selectedClassId = state.classes[0]?.class?.id ?? null;
-        }
-      })
-      .addCase(fetchClassesThunk.rejected, failed)
+    b.addCase(fetchSemestersThunk.pending, (s) => {
+      s.status = "loading";
+      s.error = null;
+    });
+    b.addCase(fetchSemestersThunk.fulfilled, (s, a) => {
+      s.status = "succeeded";
+      s.semesters = a.payload ?? [];
+    });
+    b.addCase(fetchSemestersThunk.rejected, (s, a: any) => {
+      s.status = "failed";
+      s.error = String(a.payload ?? "Fetch semesters failed");
+    });
 
-      .addCase(fetchSemestersThunk.pending, loading)
-      .addCase(fetchSemestersThunk.fulfilled, (state, action: any) => {
-        state.status = "succeeded";
-        state.semesters = action.payload ?? [];
-        // auto select current or first
-        if (!state.selectedSemesterId && state.semesters.length) {
-          const cur = state.semesters.find((x: any) => x.is_current);
-          state.selectedSemesterId = cur?.id ?? state.semesters[0]?.id ?? null;
-        }
-      })
-      .addCase(fetchSemestersThunk.rejected, failed)
-
-      .addCase(fetchDashboardThunk.pending, loading)
-      .addCase(fetchDashboardThunk.fulfilled, (state, action: any) => {
-        state.status = "succeeded";
-        state.dashboard = action.payload;
-      })
-      .addCase(fetchDashboardThunk.rejected, failed)
-
-      .addCase(listWarningsThunk.pending, loading)
-      .addCase(listWarningsThunk.fulfilled, (state, action: any) => {
-        state.status = "succeeded";
-        state.warnings = action.payload;
-      })
-      .addCase(listWarningsThunk.rejected, failed)
-
-      .addCase(previewWarningsThunk.pending, loading)
-      .addCase(previewWarningsThunk.fulfilled, (state, action: any) => {
-        state.status = "succeeded";
-        state.preview = action.payload;
-      })
-      .addCase(previewWarningsThunk.rejected, failed)
-
-      .addCase(generateWarningsThunk.pending, loading)
-      .addCase(generateWarningsThunk.fulfilled, (state) => {
-        state.status = "succeeded";
-      })
-      .addCase(generateWarningsThunk.rejected, failed)
-
-      .addCase(sendWarningsThunk.pending, loading)
-      .addCase(sendWarningsThunk.fulfilled, (state) => {
-        state.status = "succeeded";
-      })
-      .addCase(sendWarningsThunk.rejected, failed)
-
-      .addCase(listNotesThunk.pending, loading)
-      .addCase(listNotesThunk.fulfilled, (state, action: any) => {
-        state.status = "succeeded";
-        state.notes = action.payload;
-      })
-      .addCase(listNotesThunk.rejected, failed)
-
-      .addCase(createNoteThunk.pending, loading)
-      .addCase(createNoteThunk.fulfilled, (state) => {
-        state.status = "succeeded";
-      })
-      .addCase(createNoteThunk.rejected, failed);
+    b.addCase(fetchDashboardThunk.pending, (s) => {
+      s.status = "loading";
+      s.error = null;
+    });
+    b.addCase(fetchDashboardThunk.fulfilled, (s, a) => {
+      s.status = "succeeded";
+      s.dashboard = a.payload ?? null;
+    });
+    b.addCase(fetchDashboardThunk.rejected, (s, a: any) => {
+      s.status = "failed";
+      s.error = String(a.payload ?? "Fetch dashboard failed");
+    });
   },
 });
 
-export const { setSelectedClass, setSelectedSemester, clearPreview } =
-  advisorSlice.actions;
+export const { setSelectedClass, setSelectedSemester, clearAdvisorError } = advisorSlice.actions;
 export default advisorSlice.reducer;

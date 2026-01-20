@@ -2,21 +2,15 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Filter, X } from "lucide-react";
 
 export type StudentFilterState = {
   q: string;
-  academicStatus: "all" | "studying" | "paused" | "dropped";
+  academicStatus: "all" | "studying" | "leave" | "dropout" | "graduated"; // ✅ match backend
   dataStatus: "all" | "ok" | "missing" | "error";
   warningMode: "all" | "none" | "has" | "gte2";
-  gpaMin: string; // keep string to avoid controlled/uncontrolled issues
+  gpaMin: string;
   gpaMax: string;
   failedCoursesMin: string;
   sort: "name_asc" | "gpa_desc" | "gpa_asc" | "warnings_desc" | "warnings_asc";
@@ -40,11 +34,7 @@ export const DEFAULT_FILTERS: StudentFilterState = {
   sort: "name_asc",
 };
 
-function setField<T extends keyof StudentFilterState>(
-  state: StudentFilterState,
-  key: T,
-  value: StudentFilterState[T]
-): StudentFilterState {
+function setField<T extends keyof StudentFilterState>(state: StudentFilterState, key: T, value: StudentFilterState[T]) {
   return { ...state, [key]: value };
 }
 
@@ -65,7 +55,7 @@ export default function StudentFilters({ value, onChange, shownCount, totalCount
         <div className="flex items-start justify-between gap-3">
           <CardTitle className="text-base flex items-center gap-2 text-slate-900">
             <Filter className="h-4 w-4 text-slate-700" />
-            Bộ lọc danh sách sinh viên 
+            Bộ lọc danh sách sinh viên
           </CardTitle>
 
           <div className="flex items-center gap-2">
@@ -88,7 +78,6 @@ export default function StudentFilters({ value, onChange, shownCount, totalCount
       </CardHeader>
 
       <CardContent className="grid grid-cols-1 gap-3 md:grid-cols-6">
-        {/* Search */}
         <div className="md:col-span-2 space-y-1">
           <div className="text-xs font-medium text-slate-600">Tìm kiếm</div>
           <Input
@@ -99,32 +88,25 @@ export default function StudentFilters({ value, onChange, shownCount, totalCount
           />
         </div>
 
-        {/* Academic status */}
         <div className="space-y-1">
           <div className="text-xs font-medium text-slate-600">Học vụ</div>
-          <Select
-            value={value.academicStatus}
-            onValueChange={(v: any) => onChange(setField(value, "academicStatus", v))}
-          >
+          <Select value={value.academicStatus} onValueChange={(v: any) => onChange(setField(value, "academicStatus", v))}>
             <SelectTrigger className="bg-white">
               <SelectValue placeholder="Tất cả" />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">Tất cả</SelectItem>
               <SelectItem value="studying">Đang học</SelectItem>
-              <SelectItem value="paused">Tạm dừng</SelectItem>
-              <SelectItem value="dropped">Thôi học</SelectItem>
+              <SelectItem value="leave">Tạm nghỉ</SelectItem>
+              <SelectItem value="dropout">Thôi học</SelectItem>
+              <SelectItem value="graduated">Tốt nghiệp</SelectItem>
             </SelectContent>
           </Select>
         </div>
 
-        {/* Data status */}
         <div className="space-y-1">
           <div className="text-xs font-medium text-slate-600">Data</div>
-          <Select
-            value={value.dataStatus}
-            onValueChange={(v: any) => onChange(setField(value, "dataStatus", v))}
-          >
+          <Select value={value.dataStatus} onValueChange={(v: any) => onChange(setField(value, "dataStatus", v))}>
             <SelectTrigger className="bg-white">
               <SelectValue placeholder="Tất cả" />
             </SelectTrigger>
@@ -137,13 +119,9 @@ export default function StudentFilters({ value, onChange, shownCount, totalCount
           </Select>
         </div>
 
-        {/* Warnings */}
         <div className="space-y-1">
           <div className="text-xs font-medium text-slate-600">Cảnh báo</div>
-          <Select
-            value={value.warningMode}
-            onValueChange={(v: any) => onChange(setField(value, "warningMode", v))}
-          >
+          <Select value={value.warningMode} onValueChange={(v: any) => onChange(setField(value, "warningMode", v))}>
             <SelectTrigger className="bg-white">
               <SelectValue placeholder="Tất cả" />
             </SelectTrigger>
@@ -156,7 +134,6 @@ export default function StudentFilters({ value, onChange, shownCount, totalCount
           </Select>
         </div>
 
-        {/* Sort */}
         <div className="space-y-1">
           <div className="text-xs font-medium text-slate-600">Sắp xếp</div>
           <Select value={value.sort} onValueChange={(v: any) => onChange(setField(value, "sort", v))}>
@@ -173,7 +150,6 @@ export default function StudentFilters({ value, onChange, shownCount, totalCount
           </Select>
         </div>
 
-        {/* GPA min */}
         <div className="space-y-1">
           <div className="text-xs font-medium text-slate-600">GPA HK min</div>
           <Input
@@ -185,7 +161,6 @@ export default function StudentFilters({ value, onChange, shownCount, totalCount
           />
         </div>
 
-        {/* GPA max */}
         <div className="space-y-1">
           <div className="text-xs font-medium text-slate-600">GPA HK max</div>
           <Input
@@ -197,7 +172,6 @@ export default function StudentFilters({ value, onChange, shownCount, totalCount
           />
         </div>
 
-        {/* Failed courses min */}
         <div className="space-y-1">
           <div className="text-xs font-medium text-slate-600">Môn rớt ≥</div>
           <Input

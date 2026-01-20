@@ -11,7 +11,7 @@ export function StatusBadge({
   hasSelection?: boolean;
 }) {
   const s = !hasSelection
-    ? { label: "Chưa chọn lớp", className: "bg-amber-50 text-amber-900 border border-amber-200" }
+    ? { label: "Chưa chọn lớp/học kỳ", className: "bg-amber-50 text-amber-900 border border-amber-200" }
     : status === "loading"
     ? { label: "Đang tải", className: "bg-indigo-50 text-indigo-900 border border-indigo-200" }
     : status === "failed"
