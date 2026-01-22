@@ -3,7 +3,7 @@ import { cn } from "@/lib/utils";
 import {
   LayoutDashboard,
   GraduationCap,
-  // Users,
+  Users,
   TriangleAlert,
   NotebookPen,
   FileText,
@@ -36,7 +36,7 @@ type NavItem = {
 const items: NavItem[] = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { to: "/classes", label: "Lớp phụ trách", icon: GraduationCap },
-  // { to: "/dashboard", label: "Sinh viên (cảnh báo)", icon: Users },
+  { to: "/students", label: "Sinh viên", icon: Users },
 
   { to: "/warnings", label: "Cảnh báo sớm", icon: TriangleAlert },
   { to: "/notes", label: "Ghi chú tư vấn", icon: NotebookPen },

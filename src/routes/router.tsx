@@ -13,7 +13,7 @@ import SettingsPage from "@/pages/settings/SettingsPage";
 import StudentTimelinePage from "@/pages/dashboard/StudentTimelinePage";
 import StudentDetailPage from "@/pages/dashboard/StudentDetailPage";
 import NotesFlowPage from "@/pages/notes/NotePage";
-
+import StudentsPage from "@/pages/students/StudentPage";
 
 export const router = createBrowserRouter([
   {
@@ -31,7 +31,7 @@ export const router = createBrowserRouter([
           { path: "/dashboard", element: <DashboardPage /> },
           { path: "/classes", element: <ClassesPage /> },
 
-
+{ path: "/students", element: <StudentsPage /> },
           { path: "/warnings", element: <WarningsPage /> },
 
           { path: "/notes", element: <NotesFlowPage /> },
